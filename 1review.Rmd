@@ -1,0 +1,272 @@
+---
+title: "review"
+author: "nattafahh"
+date: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r prepare metadata}
+(methods = data.frame(day=c(12,12,14,14,18,18), group=rep(c("A","B"),3), method=c("Gamified", "Naive","Naive", "Gamified","Cheating","Cheating")))
+
+(groups = data.frame(user_id=c(4,7,9,3,6,8, 5,10,11,12,13), group=c(rep("A",6), rep("B", 5))))
+
+meta = merge(groups, methods, by="group")
+
+users = unique(meta$user_id)
+meths = unique(meta$method)
+
+```
+
+
+```{r temporary compare accuracy records}
+library(randomForest)
+library(dplyr)
+
+accuracies = read.csv("../data/accuracies.csv") %>% tbl_df()
+
+table(as.Date(df$updated_at),df$method)
+
+plot(factor(paste(df$method, as.Date(df$updated_at))), df$value, col="orange")
+
+df = tbl_df(df)
+
+df %>% group_by(method) %>% summarize(mean=mean(value), sd = sd(value))
+
+t.test(
+  unlist(df[df$method=="Proposed", "value"]), 
+  unlist(df[df$method=="Naive", "value"])
+  )
+
+#?chisq.test
+
+```
+
+
+```{r filter only the experiment days and users}
+load("../data/features.rdata")
+features
+
+labels=read.csv("../data/labels_fahact.csv") %>% tbl_df()
+
+labels$start=as.POSIXct(labels$start)
+labels$finish=as.POSIXct(labels$finish)
+
+labels = labels %>% filter(strftime(finish, "%d") %in% as.character(meta$day)) %>% 
+  filter(user %in% users) %>%
+  filter(as.numeric(strftime(finish, "%H")) >= 8 ) %>% #after 8 am
+  filter(as.numeric(strftime(finish, "%H")) <=16 ) #before 16 pm
+
+labels$day = as.integer(strftime(labels$finish, "%d"))
+
+labels = labels %>% left_join(meta, by = c("day"="day", "user"="user_id")) #meta join
+labels$day=NULL
+labels$acttype=factor(labels$acttype)
+
+features = features%>%filter(strftime(MINUTE, "%d") %in% as.character(meta$day)) %>% 
+  filter(user %in% users) %>%
+  filter(as.numeric(strftime(MINUTE, "%H")) >= 8 ) %>% #after 8 am
+  filter(as.numeric(strftime(MINUTE, "%H")) <=16 ) #before 16 pm
+
+features$day = as.integer(strftime(features$MINUTE, "%d"))
+
+features = features %>% left_join(meta, by=c("day"="day", "user"="user_id"))
+features$day=NULL
+
+
+```
+
+
+
+
+
+```{r functions}
+
+time2sec <- function(time){
+  time = strptime(strftime(time, "%H:%M:%S") , "%H:%M:%S") #extract time
+  with(time, {hour*3600 + min*60+sec})
+}
+
+segmentstr2sec = function(startstr, finishstr){
+  fun = function(str)str#strptime(str, format, "Japan")
+  start = fun(startstr); finish = fun(finishstr)
+  start = time2sec(start) ; finish = time2sec(finish)
+  finish[finish<start] = finish[finish<start]  + 3600*24 #increase 1 day if finish<start
+  return(data.frame(start,finish))
+}
+
+```
+
+```{r check label samples}
+tmp=table(paste("user",labels$user, labels$method), labels$acttype) #count actclasses
+tmp
+
+t(t(rowSums(tmp>0)))
+
+```
+
+```{r review labels}
+
+tmp = labels %>% group_by(user, method, acttype) %>% summarize(user[1])  
+tmp$method = factor(tmp$method, levels = c("Naive", "Gamified", "Cheating"))
+table(tmp$user, tmp$method) #count actclasses
+
+
+library(xtable)
+
+
+xtable(table(tmp$user, tmp$method))
+
+
+```
+
+
+```{r train (takes a minute)}
+res = bind_rows(lapply(meths, function(method){#for each method
+  resuser=bind_rows(lapply(users, function(user){ #for each user
+    tryCatch({
+      cat("Predict from sensor: user:", user, "\n")
+
+      u= user; m=method
+      (acts = labels %>% filter(user==u) %>% filter(method == m))
+      
+
+      #acts = unique(select(acts,-id, -created_at, -updated_at, -population, -memo, act=acttype)
+      
+      if(nrow(acts)==0) {return() }
+
+      acts[,c("start","finish")] = segmentstr2sec(acts$start, acts$finish)
+      u=user; m = method
+      (feats = features %>% filter(user==u)%>% filter(method==m)) 
+
+      get_plx_user = function(acts, feats){
+        
+        tabs = bind_rows(lapply(unique(acts$acttype), function(acttype){ 
+          
+          cat("act_type:", acttype,"\n")
+          acs = acts[acts$acttype==acttype,]
+          
+          act = rep(FALSE, nrow(feats))
+          
+          for(i in 1:nrow(acs)){
+            start = acs$start[i] ; finish=acs$finish[i]
+            act[time2sec(feats$MINUTE) %/%60 >= start %/%60 & time2sec(feats$MINUTE) %/%60<= finish%/%60] = TRUE
+          }
+          
+          #print(table(act))
+          
+          cols = setdiff(colnames(feats), c("user","MINUTE", "time","day","method","group"))
+          
+          feats[is.na(feats)]=0
+          
+          library(randomForest)
+          
+          model = randomForest(feats[,cols],factor(act)) 
+          print(model$confusion)
+          model
+          
+          tab = model$confusion[,-3]
+          tn=tab[1,1]; fp=tab[1,2]; fn=tab[2,1]; tp=tab[2,2]
+          
+          return(data.frame(act=acttype,tn, fp, fn, tp))
+        }))#tabs
+        
+        return(tabs)
+      }
+
+
+      
+      tabs = get_plx_user(acts, feats)
+      
+      cat("OK!","\n")
+    
+    }, error=function(e)print(e))#try
+    
+    data.frame(user, tabs)
+  }))#user
+  
+  data.frame(method, resuser)
+}))#method
+
+res= res %>% tbl_df()
+
+```
+
+output : res
+
+```{r sum up the result}
+
+res$recall = with(res, tp / (tp+fn))
+res$precision = with(res, tp / (tp+fp))
+res$fmeasure = with(res, 2*recall*precision/ (recall+precision))
+res$tnrate = with(res, tn / (tn+fp))
+res$bcr = with(res, (recall+tnrate)/2)
+
+results = res %>% left_join(groups, by=c("user"="user_id")) %>% arrange(user)
+
+print(results,n=50)
+
+write.csv(results, "../data/results.csv")
+
+```
+
+
+```{r summarize}
+
+results = results[!is.nan(results$fmeasure),]
+
+results
+
+#for each user
+results %>% group_by(user, method) %>% summarize(mean(bcr), sum(tp), mean(fmeasure), mean(recall), mean(precision))
+
+#all result
+results %>% group_by(method) %>% summarize(mean(bcr), sum(tp), mean(fmeasure), mean(recall), mean(precision))
+
+results %>% group_by(method) %>% summarize(mean(tnrate))
+
+#nclass
+results %>% group_by(method, user) %>% summarize(length(tp))
+
+#result by groups
+results %>% group_by(group, method) %>% summarize(mean(bcr), median(bcr))
+
+
+
+```
+
+
+```{r plot}
+plot(results$method, results$fmeasure, col="orange"); grid()
+
+
+plot(factor(paste(results$group, results$method)), results$fmeasure, col="orange"); grid()
+
+tmp = results %>% filter(method %in% c("Naive", "Gamified"))
+
+plot(factor(paste(tmp$user, tmp$method)), tmp$fmeasure, col=c("gray","orange"), las=3); grid()
+
+tmp = results %>% group_by(method, user) %>% summarize(fmeasure = mean(fmeasure, na.rm=T))  
+
+tmp1= tmp %>% filter(method=="Naive") %>% select(user, fmeasure)
+tmp2= tmp %>% filter(method=="Gamified") %>% select(user, fmeasure)
+tmp3= tmp %>% filter(method=="Cheating") %>% select(user, fmeasure)
+
+tmp = tmp1 %>% left_join(tmp2, by="user") %>% left_join(tmp3, by="user") 
+
+print(tmp, n=50      )
+pmatplot(t(tmp[,c("fmeasure.x", "fmeasure.y","fmeasure")]), type="l", col=tmp$user, lty=tmp$user)
+legend("bottomright", legend=tmp$user, lwd=1, col=tmp$user, lty=tmp$user)
+#plot(as.integer(results$method), results$bcr, col=results$user)
+
+```
+
+eval:
+* num labels / classes
+* accuracy imrovement
+* cheating detection
+
+

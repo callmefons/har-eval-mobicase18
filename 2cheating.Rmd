@@ -1,0 +1,243 @@
+---
+title: "cheating detection"
+author: "nattafahh"
+date: ""
+output: html_document
+---
+
+Execute '1review.Rmd' first.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r make a dataframe}
+# input: meths, users, labels, features, meta, groups
+
+meta
+meta %>% tbl_df() %>% filter(method %in% c("Gamified", "Cheating"))
+
+df = bind_rows(lapply(meths, function(method){#for each method
+  resuser=(lapply(users, function(user){ #for each user
+    tryCatch({
+      cat("User:", user, "\n")
+
+      u= user; m=method
+      (acts = labels %>% filter(user==u) %>% filter(method == m))
+
+      #acts = unique(select(acts,-id, -created_at, -updated_at, -population, -memo, act=acttype)
+      
+      if(nrow(acts)==0) {return() }
+
+      acts[,c("start","finish")] = segmentstr2sec(acts$start, acts$finish)
+      u=user; m = method
+      (feats = features %>% filter(user==u)%>% filter(method==m)) 
+
+      get_plx_user = function(acts, feats){
+        
+        # multi class version
+        cl = rep("Other", nrow(feats))
+
+        for(i in 1:nrow(acts)){
+          start = acts$start[i] ; finish=acts$finish[i]; act = as.character(acts$acttype[i])
+          
+          cl[time2sec(feats$MINUTE)%/%60 >= start%/%60 & time2sec(feats$MINUTE)%/%60 <= finish%/%60] = act 
+        }
+
+        #print(table(cl))
+      
+        feats[is.na(feats)]=0
+        
+        return(data.frame(feats[,cols], cl=factor(cl)))
+        
+        #return(data.frame(model$y, model$predicted))
+      }
+      
+      df = get_plx_user(acts, feats)
+      df$user = user
+      return(df)
+    }, error=function(e)print(e))#try
+    
+    
+  })) %>% bind_rows() %>% tbl_df()#user
+  
+  df=resuser
+  df$method = method
+  return(df)
+  
+  #library(randomForest)
+  
+  
+  #model = randomForest(df[,cols],factor(df$cl))
+  #model
+})) #df
+
+#names(models) = meths
+
+#omit users with single method either of "cheating" and "gamification"
+(tmp = table(df$user,df$method))
+users
+(users2 = as.numeric(rownames(tmp)[tmp[,"Cheating"] & tmp[,"Gamified"]])) # only the user
+
+df = df %>% filter(user %in% users2) 
+table(df$user)
+# output: df
+```
+
+```{r test with cross validation between cheating and gamification}
+
+#users, df
+library(randomForest)
+
+nocheat = bind_rows(lapply(users, function(user){#for each user
+  cat("user:",user, "\n")
+  u=user
+  test = df %>% filter(method=="Gamified" & user==u)
+  train = df %>% filter(method=="Gamified" & user!=u)
+  
+  if(nrow(test)==0) return()
+  cols = setdiff(colnames(df), c("user","MINUTE", "time","cl","group","method"))
+  
+  model = randomForest(train[,cols], factor(train$cl))
+  
+  pre = predict(model, test[,cols])  
+  
+  cl = test$cl
+
+  (tp = sum(cl==pre))
+  (accuracy = tp / length(pre))
+
+  data.frame(accuracy, method="Gamified")
+}))
+
+nocheat$method="Gamified"
+
+
+withcheat = bind_rows(lapply(users, function(user){ #for each user
+  cat("user:",user, "\n")
+  u=user
+  test = df %>% filter(method=="Cheating" & user==u)
+  train = df %>% filter(method=="Gamified" & user!=u)
+  
+  if(nrow(test)==0) return()
+  cols = setdiff(colnames(df), c("user","MINUTE", "time","cl","group","method"))        
+  model = randomForest(train[,cols], factor(train$cl))
+  
+  pre = predict(model, test[,cols])  
+  
+  cl = test$cl
+  tp = sum(cl==pre); 
+  accuracy = tp / length(pre)
+
+  data.frame(accuracy, method="Cheating")
+}))
+
+withcheat$method="Cheating"
+
+#mean(withcheat$accuracy)
+str(withcheat)
+
+res = rbind(withcheat, nocheat)
+res$method=factor(res$method)
+
+plot(res$method, res$accuracy, col="cyan", lwd=2); grid()
+
+randomForest(res["accuracy"],res$method)
+```
+
+
+```{r training cheating itself?->overfitting}
+#df
+tmp = df%>% filter(method %in% c("Gamified","Cheating"))
+
+cols = setdiff(colnames(tmp), c("user","MINUTE", "time","cl","group","method"))       
+
+(model = randomForest(tmp[,cols], factor(tmp$method), proximity = T))
+
+model
+head(order(outlier(model), decreasing=T))
+```
+
+
+```{r training cheatin with CV}
+#users, df
+
+(res = bind_rows(lapply(users2, function(user){#for each user
+  cat("user:",user, "\n")
+
+  u=user
+  m = c("Cheating", "Gamified")
+  bind_rows(lapply(setdiff(users2, user), function(u2){ #for each user other than user:u
+    #u2 = sample(setdiff(users2,user), 1) # sample one user from the rest
+    
+    
+    test1 = df %>% filter(method == m[1]) %>% filter(user==u) %>% filter(cl!="Other")
+    test2 = df %>% filter(method == m[2]) %>% filter(user==u2) %>% filter(cl!="Other")
+    test = rbind(test1, test2)
+    
+    table(test$method)
+    
+    train = df %>% filter(method%in%m & !(user %in% c(u,u2)))%>% filter(cl!="Other") # other than u and u2
+    
+    if(nrow(test)==0) return()
+    if(length(unique(train$method))<2) return()
+    if(length(unique(test$method))<2) return()
+    
+    cols = setdiff(colnames(df), c("user","MINUTE", "time","cl","group","method"))
+    
+    model = randomForest(train[,cols], factor(train$method))
+    
+    pre = predict(model, test[,cols])
+    
+    table(pre)
+    
+    cl = as.character(test$method)
+    
+    tmp = data.frame(cl, pre)
+    
+    #voting  
+    res = tmp %>% group_by(cl) %>% summarize(pre = names(sort(table(pre),dec=T))[1])
+    print(res)
+    data.frame(user,res)
+  }))
+
+})))
+
+#res=restmp
+
+levels(res$cl) = c("Cheating", "Non-cheating")
+res$cl = factor(res$cl, levels=c("Non-cheating", "Cheating"))
+
+res$pre = factor(res$pre)
+levels(res$pre)= c("Cheating", "Non-cheating")
+res$pre = factor(res$pre, levels=c("Non-cheating", "Cheating"))
+
+(tab = table(res$cl, res$pre))
+xtable(tab)
+
+(sum(diag(tab)) / sum(tab)) #accuracy
+(precision = tab[2,2] / sum(tab[,2])) #precision
+(recall = tab[2,2] / sum(tab[2,])) #recall
+(fmeasure = 2*recall*precision / (recall+precision)) #fmeasure
+
+
+```
+
+[1] 0.744898
+
+
+```{r thresholding with ROC curve}
+# withcheat, nocheat, res
+library(ROCR)
+
+pred = prediction(res$accuracy, res$method=="Gamified")
+
+perf = performance(pred, "tpr","fpr")
+
+plot(perf)
+
+cat("AUC:", as.numeric(performance(pred, "auc")@y.values))
+
+```
+
