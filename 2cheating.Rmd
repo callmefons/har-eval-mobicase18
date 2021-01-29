@@ -14,7 +14,6 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r make a dataframe}
 # input: meths, users, labels, features, meta, groups
-
 meta
 meta %>% tbl_df() %>% filter(method %in% c("Gamified", "Cheating"))
 
@@ -59,7 +58,6 @@ df = bind_rows(lapply(meths, function(method){ #for each method
       return(df)
     }, error=function(e)print(e))#try
     
-    
   })) %>% bind_rows() %>% tbl_df()#user
   
   df=resuser
@@ -85,7 +83,6 @@ table(df$user)
 ```
 
 ```{r test with cross validation between cheating and gamification}
-
 #users, df
 library(randomForest)
 
@@ -111,7 +108,6 @@ nocheat = bind_rows(lapply(users, function(user){#for each user
 }))
 
 nocheat$method="Gamified"
-
 
 withcheat = bind_rows(lapply(users, function(user){ #for each user
   cat("user:",user, "\n")
@@ -161,7 +157,6 @@ head(order(outlier(model), decreasing=T))
 
 ```{r training cheatin with CV}
 #users, df
-
 (res = bind_rows(lapply(users2, function(user){#for each user
   cat("user:",user, "\n")
 

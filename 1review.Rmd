@@ -41,9 +41,7 @@ t.test(
   unlist(df[df$method=="Proposed", "value"]), 
   unlist(df[df$method=="Naive", "value"])
   )
-
 #?chisq.test
-
 ```
 
 
@@ -76,8 +74,6 @@ features$day = as.integer(strftime(features$MINUTE, "%d"))
 
 features = features %>% left_join(meta, by=c("day"="day", "user"="user_id"))
 features$day=NULL
-
-
 ```
 
 
@@ -109,18 +105,11 @@ t(t(rowSums(tmp>0)))
 
 
 ```{r review labels}
-
 tmp = labels %>% group_by(user, method, acttype) %>% summarize(user[1])  
 tmp$method = factor(tmp$method, levels = c("Naive", "Gamified", "Cheating"))
 table(tmp$user, tmp$method) #count actclasses
-
-
 library(xtable)
-
-
 xtable(table(tmp$user, tmp$method))
-
-
 ```
 
 
@@ -189,13 +178,11 @@ res = bind_rows(lapply(meths, function(method){ #for each method
 }))#method
 
 res= res %>% tbl_df()
-
 ```
 
 output : res
 
 ```{r sum up the result}
-
 res$recall = with(res, tp / (tp+fn))
 res$precision = with(res, tp / (tp+fp))
 res$fmeasure = with(res, 2*recall*precision/ (recall+precision))
@@ -207,7 +194,6 @@ results = res %>% left_join(groups, by=c("user"="user_id")) %>% arrange(user)
 print(results,n=50)
 
 write.csv(results, "../data/results.csv")
-
 ```
 
 
@@ -230,15 +216,11 @@ results %>% group_by(method, user) %>% summarize(length(tp))
 
 #result by groups
 results %>% group_by(group, method) %>% summarize(mean(bcr), median(bcr))
-
-
-
 ```
 
 
 ```{r plot}
 plot(results$method, results$fmeasure, col="orange"); grid()
-
 
 plot(factor(paste(results$group, results$method)), results$fmeasure, col="orange"); grid()
 
@@ -258,7 +240,6 @@ print(tmp, n=50      )
 pmatplot(t(tmp[,c("fmeasure.x", "fmeasure.y","fmeasure")]), type="l", col=tmp$user, lty=tmp$user)
 legend("bottomright", legend=tmp$user, lwd=1, col=tmp$user, lty=tmp$user)
 #plot(as.integer(results$method), results$bcr, col=results$user)
-
 ```
 
 eval:
