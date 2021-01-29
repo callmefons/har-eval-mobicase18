@@ -18,7 +18,7 @@ knitr::opts_chunk$set(echo = TRUE)
 meta
 meta %>% tbl_df() %>% filter(method %in% c("Gamified", "Cheating"))
 
-df = bind_rows(lapply(meths, function(method){#for each method
+df = bind_rows(lapply(meths, function(method){ #for each method
   resuser=(lapply(users, function(user){ #for each user
     tryCatch({
       cat("User:", user, "\n")
@@ -67,7 +67,6 @@ df = bind_rows(lapply(meths, function(method){#for each method
   return(df)
   
   #library(randomForest)
-  
   
   #model = randomForest(df[,cols],factor(df$cl))
   #model
@@ -171,7 +170,6 @@ head(order(outlier(model), decreasing=T))
   bind_rows(lapply(setdiff(users2, user), function(u2){ #for each user other than user:u
     #u2 = sample(setdiff(users2,user), 1) # sample one user from the rest
     
-    
     test1 = df %>% filter(method == m[1]) %>% filter(user==u) %>% filter(cl!="Other")
     test2 = df %>% filter(method == m[2]) %>% filter(user==u2) %>% filter(cl!="Other")
     test = rbind(test1, test2)
@@ -220,12 +218,9 @@ xtable(tab)
 (precision = tab[2,2] / sum(tab[,2])) #precision
 (recall = tab[2,2] / sum(tab[2,])) #recall
 (fmeasure = 2*recall*precision / (recall+precision)) #fmeasure
-
-
 ```
 
 [1] 0.744898
-
 
 ```{r thresholding with ROC curve}
 # withcheat, nocheat, res
@@ -238,6 +233,4 @@ perf = performance(pred, "tpr","fpr")
 plot(perf)
 
 cat("AUC:", as.numeric(performance(pred, "auc")@y.values))
-
 ```
-

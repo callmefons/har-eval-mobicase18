@@ -9,6 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
 ```{r prepare metadata}
 (methods = data.frame(day=c(12,12,14,14,18,18), group=rep(c("A","B"),3), method=c("Gamified", "Naive","Naive", "Gamified","Cheating","Cheating")))
 
@@ -80,9 +81,6 @@ features$day=NULL
 ```
 
 
-
-
-
 ```{r functions}
 
 time2sec <- function(time){
@@ -100,6 +98,7 @@ segmentstr2sec = function(startstr, finishstr){
 
 ```
 
+
 ```{r check label samples}
 tmp=table(paste("user",labels$user, labels$method), labels$acttype) #count actclasses
 tmp
@@ -107,6 +106,7 @@ tmp
 t(t(rowSums(tmp>0)))
 
 ```
+
 
 ```{r review labels}
 
@@ -125,15 +125,14 @@ xtable(table(tmp$user, tmp$method))
 
 
 ```{r train (takes a minute)}
-res = bind_rows(lapply(meths, function(method){#for each method
+res = bind_rows(lapply(meths, function(method){ #for each method
   resuser=bind_rows(lapply(users, function(user){ #for each user
     tryCatch({
       cat("Predict from sensor: user:", user, "\n")
 
       u= user; m=method
       (acts = labels %>% filter(user==u) %>% filter(method == m))
-      
-
+    
       #acts = unique(select(acts,-id, -created_at, -updated_at, -population, -memo, act=acttype)
       
       if(nrow(acts)==0) {return() }
@@ -176,8 +175,6 @@ res = bind_rows(lapply(meths, function(method){#for each method
         
         return(tabs)
       }
-
-
       
       tabs = get_plx_user(acts, feats)
       
@@ -268,5 +265,3 @@ eval:
 * num labels / classes
 * accuracy imrovement
 * cheating detection
-
-
